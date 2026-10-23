@@ -897,7 +897,7 @@ h1{font-size:36px;color:#888;font-weight:400;letter-spacing:.01em;pointer-events
 
 <script>
 // ── 상태 ──
-const state={currentBalance:0,cashflow:[],loans:[],assets:[],assetGoals:{assetGoal:0,dividendGoal:0},fixed:[]};
+const state={currentBalance:0,cashflow:[],loans:[],assets:[],assetGoals:{assetGoal:0,dividendGoal:0},fixed:[],paidLog:[]};
 const sv={title:'저축 목표',goal:0,saved:0,log:[]};
 let lt={days:{},winAmt:1000,chargeAmt:10000};
 let ltViewYear=0,ltViewMonth=0;
@@ -966,7 +966,7 @@ const hint=(i,h)=>{const r=document.getElementById(i).value;const v=parseFloat(r
 
 // ── 저장/불러오기 ──
 async function save(){
-  const data=JSON.stringify({cashflow:state.cashflow,loans:state.loans,fixed:state.fixed,assets:state.assets,assetGoals:state.assetGoals,currentBalance:state.currentBalance,sv:{title:sv.title,goal:sv.goal,saved:sv.saved,log:sv.log},quickBtns,lt});
+  const data=JSON.stringify({cashflow:state.cashflow,loans:state.loans,fixed:state.fixed,assets:state.assets,assetGoals:state.assetGoals,currentBalance:state.currentBalance,paidLog:state.paidLog,sv:{title:sv.title,goal:sv.goal,saved:sv.saved,log:sv.log},quickBtns,lt});
   try{if(window.storage)await window.storage.set('cf_data',data);else localStorage.setItem('cf_data',data);}
   catch(e){try{localStorage.setItem('cf_data',data);}catch(e2){}}
 }
@@ -978,6 +978,7 @@ async function load(){
   try{
     const p=JSON.parse(s);
     if(p.cashflow)state.cashflow=p.cashflow;
+    if(p.paidLog)state.paidLog=p.paidLog;
     if(p.loans)state.loans=p.loans;
     if(p.fixed)state.fixed=p.fixed;
     if(p.assets)state.assets=p.assets;
@@ -1045,7 +1046,8 @@ function ovMonthly(it){
 function ovPeriodDays(t){return t==='daily'?1:t==='weekly'?7:t==='yearly'?366:31;}
 function buildOverviewSegments(){
   const cur=ymKey(today.getFullYear(),today.getMonth());
-  const items=(state.cashflow||[]).filter(it=>it.repeat&&it.name&&(!it.repeatUntil||it.repeatUntil>=todayStr)).map(it=>{
+  const monthStart=todayStr.slice(0,7)+'-01'; // 이번 달 안에 끝난 항목도 이번 달까지는 표시
+  const items=(state.cashflow||[]).filter(it=>it.repeat&&it.name&&(!it.repeatUntil||it.repeatUntil>=monthStart)).map(it=>{
     // 시작 날짜가 '다음 회차' 수준(한 주기 이내)이면 이미 진행 중인 항목으로 봄
     const t=it.repeatType||'monthly';
     const gap=(new Date(it.date+'T00:00:00')-new Date(todayStr+'T00:00:00'))/86400000;
@@ -1117,6 +1119,38 @@ function renderOverviewChange(){
   fitOvPeriods();
 }
 
+// ── 납부 기록: 납부로 사라진 회차도 전망(월별·연도별)에 남기기 ──
+function logPaid(item,amount,dateKey){
+  if(!state.paidLog)state.paidLog=[];
+  const dk=dateKey||todayStr;
+  state.paidLog.push({name:item.name,type:item.type,amount:amount,dateKey:dk});
+  const cut=(today.getFullYear()-1)+'-01-01';
+  state.paidLog=state.paidLog.filter(x=>x.dateKey>=cut);
+}
+// 반복 규칙으로 기간 전체(지난 날짜 포함) 회차 계산 + 납부 기록 합치기
+function ovOccurrences(startStr,endStr){
+  const out=[];
+  state.cashflow.forEach(e=>{
+    if(e.repeat){
+      const od=new Date(e.date).getDate(),isEnd=!!e.monthEnd,rt=e.repeatType||'monthly',dows=e.repeatDows||[],dom=e.repeatDom||null;
+      const until=e.repeatUntil&&e.repeatUntil<endStr?e.repeatUntil:endStr;
+      const exc=e.exceptions||[];
+      let dk=e.date,oi=0,guard=0;
+      while(dk<=until&&guard++<20000){
+        if(dk>=startStr){
+          const disp=(e.prepend&&dk!==todayStr)?prependToWorkday(dk):dk;
+          const pdk=e.prepend?prependToWorkday(dk):dk;
+          if(!exc.includes(disp)&&!exc.includes(pdk))out.push({name:e.name,type:e.type,amount:occAmt(e,oi,dk),dateKey:disp,pending:e.pending});
+        }
+        dk=nextRepByType(dk,rt,od,isEnd,dows,dom);oi++;
+      }
+    }else if(e.date>=startStr&&e.date<=endStr){
+      out.push({name:e.name,type:e.type,amount:e.amount,dateKey:e.date,pending:e.pending});
+    }
+  });
+  (state.paidLog||[]).forEach(x=>{if(x.dateKey>=startStr&&x.dateKey<=endStr)out.push(x);});
+  return out;
+}
 // ── 전망 보기 방식: 월별 / 연도별 / 변화 시점 ──
 let _ovMode=(()=>{try{return localStorage.getItem('cf_ovmode')||'change';}catch(e){return 'change';}})();
 let _ovMore=0;
@@ -1132,7 +1166,6 @@ function renderOverview(){
 // 실제 일정(현금흐름 타임라인과 같은 데이터)을 달력 월/연도별로 합산
 function renderOverviewPeriod(){
   const el=document.getElementById('overview-content');if(!el)return;
-  if(state.cashflow.length&&!_tlAllItems.length)buildTimelineData();
   const isY=_ovMode==='year',cy=today.getFullYear(),cm=today.getMonth();
   const count=isY?10+_ovMore*5:24+_ovMore*12;
   const keys=[];
@@ -1141,11 +1174,13 @@ function renderOverviewPeriod(){
     else{const d=new Date(cy,cm+k,1);keys.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'));}
   }
   const bk={};keys.forEach(k=>bk[k]={});
-  const lastKey=keys[keys.length-1];let hasMore=false;
-  _tlAllItems.forEach(it=>{
-    if(!it.name||!it.name.trim()||it.dateKey<todayStr)return;
+  const startStr=keys[0]+(isY?'-01-01':'-01');
+  const lastKey=keys[keys.length-1];
+  const endStr=isY?lastKey+'-12-31':(()=>{const [y,m]=lastKey.split('-').map(Number);const d=new Date(y,m,0);return lastKey+'-'+String(d.getDate()).padStart(2,'0');})();
+  const hasMore=state.cashflow.some(e=>e.repeat?(!e.repeatUntil||e.repeatUntil>endStr):e.date>endStr);
+  ovOccurrences(startStr,endStr).forEach(it=>{
+    if(!it.name||!it.name.trim())return;
     const k=isY?it.dateKey.slice(0,4):it.dateKey.slice(0,7);
-    if(k>lastKey){hasMore=true;return;}
     const g=bk[k];if(!g)return;
     const gk=it.type+'|'+it.name;
     if(!g[gk])g[gk]={name:it.name,type:it.type,amount:0,cnt:0,pending:false};
@@ -1160,9 +1195,8 @@ function renderOverviewPeriod(){
     const te=rows.filter(r=>r.type==='expense').reduce((s,r)=>s+r.amount,0);
     const net=ti-te,isNow=idx===0;
     let period,sub='';
-    if(isY){period=k+'년';if(isNow&&cm>0)sub=(cm+1)+'~12월';}
+    if(isY)period=k+'년';
     else{const [y,m]=k.split('-');period=y+'년 '+parseInt(m)+'월';}
-    if(isNow)sub=(sub?sub+' · ':'')+'오늘 이후';
     const list=rows.map(r=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-top:1px solid var(--bd);line-height:1.3">
       <div style="min-width:0;flex:1;padding-right:8px;font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}${r.cnt>1?'<span style="color:var(--t2);font-size:10px;font-weight:600;margin-left:4px">×'+r.cnt+'</span>':''}${r.pending?'<span style="color:#e03030;font-size:9px;font-weight:600;margin-left:4px">· 보류</span>':''}</div>
       <div class="t-amount ${r.type}" style="font-size:12px;font-weight:700">${r.type==='income'?'+':'-'}${fmt(r.amount)}원</div></div>`).join('');
@@ -1603,7 +1637,12 @@ function confirmDelete(){
   closeModal('deleteModal');_deleteType='';_deleteId=null;_deleteDateKey=null;_deleteCard=null;
 }
 function confirmDeleteAll(){
-  if(_deleteType==='cf'&&_deleteId){state.cashflow=state.cashflow.filter(e=>String(e.id)!==String(_deleteId));save();
+  if(_deleteType==='cf'&&_deleteId){
+    // 이미 시작된 반복 항목은 지우지 않고 종료일을 어제로 → 전망에 지난 기록 유지
+    const de=state.cashflow.find(e=>String(e.id)===String(_deleteId));
+    if(de&&de.repeat&&!(de.repeatTotal>0)&&de.date<todayStr){const y=new Date(todayStr);y.setDate(y.getDate()-1);de.repeatUntil=y.getFullYear()+'-'+String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0');}
+    else state.cashflow=state.cashflow.filter(e=>String(e.id)!==String(_deleteId));
+    save();
     if(_deleteCard){
       const inner=_deleteCard.querySelector('.timeline-item');
       if(inner){inner.style.transition='transform .2s';inner.style.transform='translateX(-400px)';}
@@ -1761,6 +1800,7 @@ function initCfSwipe(){
           const shown=(_tlAllItems.find(x=>String(x.id)===String(item.id)&&x.dateKey===card.dataset.datekey)||item).amount;
           const amt=item.type==='income'?shown:-shown;
           if(item.repeatTotal>0&&item.type==='expense'){if(!item.loanPayments)item.loanPayments=[];const dd=new Date(todayStr);item.loanPayments.unshift({date:todayStr,amount:shown,memo:(dd.getMonth()+1)+'월 '+dd.getDate()+'일 납부'});}
+          logPaid(item,shown,card.dataset.datekey);
           if(!item.repeat){
             state.cashflow=state.cashflow.filter(e=>String(e.id)!==String(card.dataset.id));
           } else {
@@ -2018,6 +2058,7 @@ function payLinked(id,amount,label,tr){
     amount=v.nextAmt;
     if(!e.exceptions)e.exceptions=[];
     if(!e.exceptions.includes(v.next))e.exceptions.push(v.next);
+    logPaid(e,amount,v.next);
   }else{
     amount=Math.min(amount,v.remain);
     reschedLinked(e,v,v.remain-amount);
@@ -2211,8 +2252,8 @@ function initLtSwipe(){
 }
 function confirmLtRowDelete(){if(_ltDeleteDk&&lt.days[_ltDeleteDk]){delete lt.days[_ltDeleteDk];_ltDeleteDk=null;closeModal('ltRowDeleteModal');renderLottery();save();}}
 
-function exportData(){const data=JSON.stringify({cashflow:state.cashflow,loans:state.loans,fixed:state.fixed,currentBalance:state.currentBalance,sv:{title:sv.title,goal:sv.goal,saved:sv.saved,log:sv.log},quickBtns,lt},null,2);const blob=new Blob([data],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='cashflow.json';a.click();URL.revokeObjectURL(url);}
-function importData(e){const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const p=JSON.parse(ev.target.result);if(p.cashflow)state.cashflow=p.cashflow;if(p.loans)state.loans=p.loans;if(p.fixed)state.fixed=p.fixed;if(p.currentBalance)state.currentBalance=p.currentBalance;if(p.sv){sv.title=p.sv.title;sv.goal=p.sv.goal;sv.saved=p.sv.saved;sv.log=p.sv.log||[];}if(p.quickBtns)quickBtns=p.quickBtns;if(p.lt){if(p.lt.days)lt.days=p.lt.days;if(p.lt.winAmt)lt.winAmt=p.lt.winAmt;if(p.lt.chargeAmt)lt.chargeAmt=p.lt.chargeAmt;}renderTimeline();renderLoans();renderSaving();updateHeaderBalance();save();document.getElementById('dataModal').style.display='none';alert('가져오기 완료!');}catch(err){alert('파일을 읽을 수 없어요.');}};reader.readAsText(file);}
+function exportData(){const data=JSON.stringify({cashflow:state.cashflow,paidLog:state.paidLog,loans:state.loans,fixed:state.fixed,currentBalance:state.currentBalance,sv:{title:sv.title,goal:sv.goal,saved:sv.saved,log:sv.log},quickBtns,lt},null,2);const blob=new Blob([data],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='cashflow.json';a.click();URL.revokeObjectURL(url);}
+function importData(e){const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const p=JSON.parse(ev.target.result);if(p.cashflow)state.cashflow=p.cashflow;if(p.paidLog)state.paidLog=p.paidLog;if(p.loans)state.loans=p.loans;if(p.fixed)state.fixed=p.fixed;if(p.currentBalance)state.currentBalance=p.currentBalance;if(p.sv){sv.title=p.sv.title;sv.goal=p.sv.goal;sv.saved=p.sv.saved;sv.log=p.sv.log||[];}if(p.quickBtns)quickBtns=p.quickBtns;if(p.lt){if(p.lt.days)lt.days=p.lt.days;if(p.lt.winAmt)lt.winAmt=p.lt.winAmt;if(p.lt.chargeAmt)lt.chargeAmt=p.lt.chargeAmt;}renderTimeline();renderLoans();renderSaving();updateHeaderBalance();save();document.getElementById('dataModal').style.display='none';alert('가져오기 완료!');}catch(err){alert('파일을 읽을 수 없어요.');}};reader.readAsText(file);}
 
 // ── 자동 정산 ──
 function autoSettle(){
