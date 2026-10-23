@@ -330,8 +330,8 @@ h1{font-size:36px;color:#888;font-weight:400;letter-spacing:.01em;pointer-events
   </div>
   <div class="page-tabs">
     <button class="page-tab active" onclick="switchTab('cashflow',this)">현금흐름</button>
-    <button class="page-tab" onclick="switchTab('overview',this)">전망</button>
-    <button class="page-tab" onclick="switchTab('fixed',this)">고정비</button>
+    <button class="page-tab" onclick="switchTab('overview',this)">고정비 전망</button>
+    <button class="page-tab" onclick="switchTab('fixed',this)">고정비 목록</button>
     <button class="page-tab" onclick="switchTab('loan',this)">상환</button>
     <button class="page-tab" onclick="switchTab('lottery',this)">복권</button>
   </div>
@@ -1123,6 +1123,7 @@ function renderOverviewChange(){
 function logPaid(item,amount,dateKey){
   if(!state.paidLog)state.paidLog=[];
   const dk=dateKey||todayStr;
+  if(!item.repeat&&!item.fromRepeat)return; // 전망은 반복 항목(+이 날짜만 수정한 회차)만
   state.paidLog.push({name:item.name,type:item.type,amount:amount,dateKey:dk});
   const cut=(today.getFullYear()-1)+'-01-01';
   state.paidLog=state.paidLog.filter(x=>x.dateKey>=cut);
@@ -1144,7 +1145,8 @@ function ovOccurrences(startStr,endStr){
         }
         dk=nextRepByType(dk,rt,od,isEnd,dows,dom);oi++;
       }
-    }else if(e.date>=startStr&&e.date<=endStr){
+    }else if(e.fromRepeat&&e.date>=startStr&&e.date<=endStr){
+      // 반복 항목에서 '이 날짜만 수정'으로 떨어져 나온 회차
       out.push({name:e.name,type:e.type,amount:e.amount,dateKey:e.date,pending:e.pending});
     }
   });
@@ -1177,7 +1179,7 @@ function renderOverviewPeriod(){
   const startStr=keys[0]+(isY?'-01-01':'-01');
   const lastKey=keys[keys.length-1];
   const endStr=isY?lastKey+'-12-31':(()=>{const [y,m]=lastKey.split('-').map(Number);const d=new Date(y,m,0);return lastKey+'-'+String(d.getDate()).padStart(2,'0');})();
-  const hasMore=state.cashflow.some(e=>e.repeat?(!e.repeatUntil||e.repeatUntil>endStr):e.date>endStr);
+  const hasMore=state.cashflow.some(e=>e.repeat&&(!e.repeatUntil||e.repeatUntil>endStr));
   ovOccurrences(startStr,endStr).forEach(it=>{
     if(!it.name||!it.name.trim())return;
     const k=isY?it.dateKey.slice(0,4):it.dateKey.slice(0,7);
@@ -1559,7 +1561,7 @@ function applyCfEditThis(){
     const exKey=dateKey;
     if(!orig.exceptions.includes(exKey))orig.exceptions.push(exKey);
     // 날짜는 dateKey 그대로, 금액/이름/타입만 변경해서 비반복으로 추가
-    state.cashflow.push({id:Date.now(),type,name,amount,date:exKey,repeat:false,prepend:orig.prepend,monthEnd:false});
+    state.cashflow.push({id:Date.now(),type,name,amount,date:exKey,repeat:false,prepend:orig.prepend,monthEnd:false,fromRepeat:orig.id});
   }
   _cfEditPending=null;closeModal('repeatModal');renderTimeline();save();
 }
@@ -1578,7 +1580,7 @@ function applyPendingThis(){
   if(orig){
     if(!orig.exceptions)orig.exceptions=[];
     if(!orig.exceptions.includes(dateKey))orig.exceptions.push(dateKey);
-    state.cashflow.push({id:Date.now(),type,name,amount,date:dateKey,repeat:false,prepend,monthEnd:false,pending});
+    state.cashflow.push({id:Date.now(),type,name,amount,date:dateKey,repeat:false,prepend,monthEnd:false,pending,fromRepeat:orig.id});
   }
   _cfEditPending=null;
   document.getElementById('repeatPendingBtns').style.display='none';
@@ -2690,7 +2692,7 @@ function confirmMoveDay(){
       const orig=state.cashflow.find(e=>e.id===item.id);
       if(orig){if(!orig.exceptions)orig.exceptions=[];if(!orig.exceptions.includes(_moveDaySrc))orig.exceptions.push(_moveDaySrc);}
       // 새 날짜에 일회성 추가
-      state.cashflow.push({id:Date.now()+Math.floor(Math.random()*1000),name:item.name,amount:item.amount,type:item.type,date:newDk,repeat:false});
+      state.cashflow.push({id:Date.now()+Math.floor(Math.random()*1000),name:item.name,amount:item.amount,type:item.type,date:newDk,repeat:false,fromRepeat:item.id});
     } else {
       const orig=state.cashflow.find(e=>e.id===item.id);
       if(orig)orig.date=newDk;
