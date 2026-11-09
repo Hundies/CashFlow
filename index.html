@@ -227,11 +227,9 @@ h1{font-size:36px;color:#888;font-weight:400;letter-spacing:.01em;pointer-events
 .pending-card .t-dot{opacity:0.45}
 .imp-star{background:none;border:none;font-size:15px;line-height:1;color:#d4d4d4;cursor:pointer;padding:0;position:absolute;left:10px;top:50%;transform:translateY(-50%);z-index:2;touch-action:manipulation}
 .imp-star.on{color:var(--gold)}
-.t-name.imp{font-weight:700;color:#fff}
-.important-card .t-amount,.important-card .t-dot.star{color:#fff!important}
-.important-card .t-name-row svg,.important-card .cf-card-memo-btn{color:#fff!important}
+.t-name.imp{font-weight:700;color:#111}
 .t-dot.star{width:auto;height:auto;background:none;border-radius:0;font-size:12px;line-height:1;margin-left:-3px}
-.important-card .timeline-item{background:#c9a54a}
+.important-card .timeline-item{background:linear-gradient(90deg,rgba(201,165,74,.5) 0%,rgba(201,165,74,.22) 45%,rgba(201,165,74,0) 90%)}
 .t-dot.star.income{color:#2ecc71}
 .t-dot.star.expense{color:var(--red)}
 .bottom-toggles{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-bottom:8px}
@@ -545,7 +543,7 @@ h1{font-size:36px;color:#888;font-weight:400;letter-spacing:.01em;pointer-events
     <div class="cf-modal-body">
       <input type="hidden" id="cf-edit-id">
       <input type="hidden" id="cf-edit-datekey">
-      <div class="form-row"><label>항목명</label><div style="position:relative"><button type="button" class="imp-star" id="cf-edit-important" onclick="toggleSw('cf-edit-important')">★</button><input type="text" id="cf-edit-name" lang="ko" inputmode="text" autocomplete="off" style="padding-left:28px"></div></div>
+      <div class="form-row"><label>항목명</label><div style="position:relative"><button type="button" class="imp-star" id="cf-edit-important" onclick="onImpStar()">★</button><input type="text" id="cf-edit-name" lang="ko" inputmode="text" autocomplete="off" style="padding-left:28px"></div></div>
       <div class="qb-row" id="qb-edit-row">
         <button class="qb-btn" data-idx="0" onclick="applyQuick(0,'cf-edit')"></button>
         <button class="qb-btn" data-idx="1" onclick="applyQuick(1,'cf-edit')"></button>
@@ -1457,7 +1455,7 @@ function openCfEdit(id,dateKey){
   const rlabel=document.getElementById('cf-edit-repeat-label');if(rlabel)rlabel.textContent='반복';
   const ptog=document.getElementById('cf-edit-prepend');e.prepend?ptog.classList.add('on'):ptog.classList.remove('on');cfEditPrependOn=!!e.prepend;
   const pendtog=document.getElementById('cf-edit-pending');e.pending?pendtog.classList.add('on'):pendtog.classList.remove('on');cfEditPendingOn=!!e.pending;
-  const imptog=document.getElementById('cf-edit-important');const impNow=impOf(e,dateKey||'');impNow?imptog.classList.add('on'):imptog.classList.remove('on');cfEditImportantOn=impNow;
+  const imptog=document.getElementById('cf-edit-important');_impChoice=null;const impNow=impOf(e,dateKey||'');impNow?imptog.classList.add('on'):imptog.classList.remove('on');cfEditImportantOn=impNow;
   const metog=document.getElementById('cf-edit-monthend-sw');e.monthEnd?metog.classList.add('on'):metog.classList.remove('on');cfEditMonthEndOn=!!e.monthEnd;
   openCfEditModal();
   initCfEditMemo(e,dateKey||'');
@@ -1465,14 +1463,22 @@ function openCfEdit(id,dateKey){
 }
 function impOf(e,dk){return (e.importantByDate&&dk&&(dk in e.importantByDate))?!!e.importantByDate[dk]:!!e.important;}
 let _impPending=null;
+let _impChoice=null;
+function setImpStarUI(on){const el=document.getElementById('cf-edit-important');on?el.classList.add('on'):el.classList.remove('on');cfEditImportantOn=on;}
+function onImpStar(){
+  const el=document.getElementById('cf-edit-important');
+  const on=!el.classList.contains('on');
+  const id=parseInt(document.getElementById('cf-edit-id').value);
+  const occ=document.getElementById('cf-edit-datekey').value||'';
+  const e=state.cashflow.find(x=>x.id===id);
+  if(e&&e.repeat&&occ){_impPending={id,newImp:on,occ};openModal('impScopeModal');}
+  else{_impChoice=null;setImpStarUI(on);}
+}
 function applyImpScope(scope){
   if(!_impPending)return;
-  const e=state.cashflow.find(x=>x.id===_impPending.id);
-  if(e){
-    if(scope==='this'){if(!e.importantByDate)e.importantByDate={};e.importantByDate[_impPending.occ]=_impPending.newImp;}
-    else{e.important=_impPending.newImp;delete e.importantByDate;}
-  }
-  _impPending=null;closeModal('impScopeModal');saveCfEdit();
+  _impChoice={id:_impPending.id,newImp:_impPending.newImp,scope};
+  setImpStarUI(_impPending.newImp);
+  _impPending=null;closeModal('impScopeModal');
 }
 function saveCfEdit(){
   const id=parseInt(document.getElementById('cf-edit-id').value);
@@ -1495,9 +1501,10 @@ function saveCfEdit(){
   }
   {const newImp=document.getElementById('cf-edit-important').classList.contains('on');
   if(newImp!==impOf(e,occDateKey)){
-    if(e.repeat&&occDateKey){_impPending={id,newImp,occ:occDateKey};openModal('impScopeModal');return;}
-    e.important=newImp;
-  }}
+    if(e.repeat&&occDateKey&&_impChoice&&_impChoice.id===id&&_impChoice.scope==='this'){if(!e.importantByDate)e.importantByDate={};e.importantByDate[occDateKey]=newImp;}
+    else{e.important=newImp;if(e.repeat)delete e.importantByDate;}
+  }
+  _impChoice=null;}
   const changed=e.name!==name||e.amount!==amount||e.type!==cfEditType||e.date!==date;
   const pendingChanged=e.pending!==pending;
   if(e.repeat&&changed){
