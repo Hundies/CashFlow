@@ -225,6 +225,12 @@ h1{font-size:36px;color:#888;font-weight:400;letter-spacing:.01em;pointer-events
 .calc-btn.op{background:#f5f0e8;color:var(--gold)}
 .calc-btn:active{filter:brightness(.93)}
 .pending-card .t-dot{opacity:0.45}
+.imp-star{background:none;border:none;font-size:15px;line-height:1;color:#d4d4d4;cursor:pointer;padding:0;position:absolute;left:10px;top:50%;transform:translateY(-50%);z-index:2;touch-action:manipulation}
+.imp-star.on{color:var(--gold)}
+.t-name.imp{font-weight:700;color:#444433}
+.t-dot.star{width:auto;height:auto;background:none;border-radius:0;font-size:12px;line-height:1;margin-left:-3px}
+.t-dot.star.income{color:#2ecc71}
+.t-dot.star.expense{color:var(--red)}
 .bottom-toggles{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-bottom:8px}
 .toggle-row{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:5px;padding:6px 6px;background:var(--s2);border:1.5px solid var(--bd);border-radius:8px;cursor:pointer;min-height:38px}
 .toggle-row span{font-size:10px;color:var(--text);font-weight:500;line-height:1.3;text-align:center;flex:1}
@@ -536,7 +542,7 @@ h1{font-size:36px;color:#888;font-weight:400;letter-spacing:.01em;pointer-events
     <div class="cf-modal-body">
       <input type="hidden" id="cf-edit-id">
       <input type="hidden" id="cf-edit-datekey">
-      <div class="form-row"><label>항목명</label><input type="text" id="cf-edit-name" lang="ko" inputmode="text" autocomplete="off"></div>
+      <div class="form-row"><label>항목명</label><div style="position:relative"><button type="button" class="imp-star" id="cf-edit-important" onclick="toggleSw('cf-edit-important')">★</button><input type="text" id="cf-edit-name" lang="ko" inputmode="text" autocomplete="off" style="padding-left:28px"></div></div>
       <div class="qb-row" id="qb-edit-row">
         <button class="qb-btn" data-idx="0" onclick="applyQuick(0,'cf-edit')"></button>
         <button class="qb-btn" data-idx="1" onclick="applyQuick(1,'cf-edit')"></button>
@@ -873,6 +879,19 @@ h1{font-size:36px;color:#888;font-weight:400;letter-spacing:.01em;pointer-events
 </div>
 
 <!-- 반복 수정 선택 -->
+<div class="modal-ov" id="impScopeModal">
+  <div class="modal-box">
+    <div class="modal-title">중요 표시</div>
+    <div style="padding:0 12px 12px">
+      <div class="modal-sec">
+        <div style="font-size:13px;color:var(--t2);margin-bottom:14px;line-height:1.6">반복 항목이에요.<br>어떻게 적용할까요?</div>
+        <button class="mbtn" style="background:var(--gold);color:#fff" onclick="applyImpScope('this')">이번 회차만</button>
+        <button class="mbtn" style="background:#fff;color:var(--text);border:1.5px solid var(--bd)" onclick="applyImpScope('all')">전체 반복</button>
+      </div>
+      <button class="modal-close" onclick="closeModal('impScopeModal')">취소</button>
+    </div>
+  </div>
+</div>
 <div class="modal-ov" id="repeatModal">
   <div class="modal-box">
     <div class="modal-title">반복 항목 수정</div>
@@ -903,7 +922,7 @@ let lt={days:{},winAmt:1000,chargeAmt:10000};
 let ltViewYear=0,ltViewMonth=0;
 let quickBtns=[{name:'',amount:0,type:'expense'},{name:'',amount:0,type:'expense'},{name:'',amount:0,type:'expense'},{name:'',amount:0,type:'expense'}];
 let cfRepeatOn=false,cfMonthEndOn=false,cfPrependOn=false,cfPendingOn=false,cfRepeatType='monthly',cfRepeatUntil='',cfRepeatDows=[],cfRepeatDom=null,cfType='expense';
-let cfEditRepeatOn=false,cfEditMonthEndOn=false,cfEditPrependOn=false,cfEditPendingOn=false,cfEditRepeatType='monthly',cfEditRepeatUntil='',cfEditRepeatDows=[],cfEditRepeatDom=null,cfEditType='income';
+let cfEditRepeatOn=false,cfEditMonthEndOn=false,cfEditPrependOn=false,cfEditPendingOn=false,cfEditImportantOn=false,cfEditRepeatType='monthly',cfEditRepeatUntil='',cfEditRepeatDows=[],cfEditRepeatDom=null,cfEditType='income';
 let _cfMemoCtx=null;
 let currentTab='cashflow',svAmountMode='plus',qbEditType='expense';
 let _cfEditPending=null,_deleteType='',_deleteId=null,_deleteDateKey=null,_deleteCard=null;
@@ -1280,6 +1299,7 @@ function toggleSw(id){
   if(id==='cf-edit-repeat')cfEditRepeatOn=on;
   if(id==='cf-edit-prepend')cfEditPrependOn=on;
   if(id==='cf-edit-pending')cfEditPendingOn=on;
+  if(id==='cf-edit-important')cfEditImportantOn=on;
 }
 function toggleMonthEnd(prefix){
   const isEdit=prefix==='cf-edit';
@@ -1434,10 +1454,22 @@ function openCfEdit(id,dateKey){
   const rlabel=document.getElementById('cf-edit-repeat-label');if(rlabel)rlabel.textContent='반복';
   const ptog=document.getElementById('cf-edit-prepend');e.prepend?ptog.classList.add('on'):ptog.classList.remove('on');cfEditPrependOn=!!e.prepend;
   const pendtog=document.getElementById('cf-edit-pending');e.pending?pendtog.classList.add('on'):pendtog.classList.remove('on');cfEditPendingOn=!!e.pending;
+  const imptog=document.getElementById('cf-edit-important');const impNow=impOf(e,dateKey||'');impNow?imptog.classList.add('on'):imptog.classList.remove('on');cfEditImportantOn=impNow;
   const metog=document.getElementById('cf-edit-monthend-sw');e.monthEnd?metog.classList.add('on'):metog.classList.remove('on');cfEditMonthEndOn=!!e.monthEnd;
   openCfEditModal();
   initCfEditMemo(e,dateKey||'');
   updateCfEditTitle();
+}
+function impOf(e,dk){return (e.importantByDate&&dk&&(dk in e.importantByDate))?!!e.importantByDate[dk]:!!e.important;}
+let _impPending=null;
+function applyImpScope(scope){
+  if(!_impPending)return;
+  const e=state.cashflow.find(x=>x.id===_impPending.id);
+  if(e){
+    if(scope==='this'){if(!e.importantByDate)e.importantByDate={};e.importantByDate[_impPending.occ]=_impPending.newImp;}
+    else{e.important=_impPending.newImp;delete e.importantByDate;}
+  }
+  _impPending=null;closeModal('impScopeModal');saveCfEdit();
 }
 function saveCfEdit(){
   const id=parseInt(document.getElementById('cf-edit-id').value);
@@ -1458,6 +1490,11 @@ function saveCfEdit(){
   }else{
     e.memo=memoText;
   }
+  {const newImp=document.getElementById('cf-edit-important').classList.contains('on');
+  if(newImp!==impOf(e,occDateKey)){
+    if(e.repeat&&occDateKey){_impPending={id,newImp,occ:occDateKey};openModal('impScopeModal');return;}
+    e.important=newImp;
+  }}
   const changed=e.name!==name||e.amount!==amount||e.type!==cfEditType||e.date!==date;
   const pendingChanged=e.pending!==pending;
   if(e.repeat&&changed){
@@ -1580,7 +1617,7 @@ function applyPendingThis(){
   if(orig){
     if(!orig.exceptions)orig.exceptions=[];
     if(!orig.exceptions.includes(dateKey))orig.exceptions.push(dateKey);
-    state.cashflow.push({id:Date.now(),type,name,amount,date:dateKey,repeat:false,prepend,monthEnd:false,pending,fromRepeat:orig.id});
+    state.cashflow.push({id:Date.now(),type,name,amount,date:dateKey,repeat:false,prepend,monthEnd:false,pending,important:impOf(orig,dateKey),fromRepeat:orig.id});
   }
   _cfEditPending=null;
   document.getElementById('repeatPendingBtns').style.display='none';
@@ -1734,7 +1771,8 @@ function renderTimelineChunk(upToMk){
         const div=idx<items.length-1?'<div class="tl-divider"></div>':'';
         const memoText=(item.memoByDate&&item.memoByDate[item.dateKey])||item.memo||'';
         const memoBtn=memoText?'<button class="cf-card-memo-btn" onclick="event.stopPropagation();openCfMemoForItem('+item.id+',\''+item.dateKey+'\')">'+cfNoteSvg+'</button>':'';
-        cardHtml+='<div class="cf-card'+(item.pending?' pending-card':'')+'" data-id="'+item.id+'" data-datekey="'+item.dateKey+'"><div class="cf-delete-bg"><div class="cf-trash-left">'+editSvg+'</div><div class="cf-pay-bg" style="position:absolute;inset:0;background:#4db8d4;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:3px;opacity:0"><div style="font-size:9px;font-weight:700;color:#fff">납부</div>'+paySvg+'</div><div class="cf-trash-right">'+trashSvg+'</div></div><div class="timeline-item"><div class="t-dot '+item.type+'"></div><div class="t-body"><div class="t-name-row"><span class="t-name">'+item.name+'</span>'+(item.pending?'<span style="color:#e03030;font-size:10px;font-weight:600;margin-left:4px">· 보류 중</span>':'')+  (item.repeat?ripIco:'')+memoBtn+'</div></div><div class="t-amount '+item.type+'">'+(item.type==='income'?'':'-')+fmt(item.amount)+'원</div></div></div>'+div;
+        const imp=impOf(item,item.dateKey);
+        cardHtml+='<div class="cf-card'+(item.pending?' pending-card':'')+'" data-id="'+item.id+'" data-datekey="'+item.dateKey+'"><div class="cf-delete-bg"><div class="cf-trash-left">'+editSvg+'</div><div class="cf-pay-bg" style="position:absolute;inset:0;background:#4db8d4;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:3px;opacity:0"><div style="font-size:9px;font-weight:700;color:#fff">납부</div>'+paySvg+'</div><div class="cf-trash-right">'+trashSvg+'</div></div><div class="timeline-item"><div class="t-dot '+item.type+(imp?' star':'')+'">'+(imp?'★':'')+'</div><div class="t-body"><div class="t-name-row"><span class="t-name'+(imp?' imp':'')+'">'+item.name+'</span>'+(item.pending?'<span style="color:#e03030;font-size:10px;font-weight:600;margin-left:4px">· 보류 중</span>':'')+  (item.repeat?ripIco:'')+memoBtn+'</div></div><div class="t-amount '+item.type+'">'+(item.type==='income'?'':'-')+fmt(item.amount)+'원</div></div></div>'+div;
       });
       if(!cardHtml){return;}
       let dt=0;items.forEach(it=>{if(!it.pending)dt+=it.type==='income'?it.amount:-it.amount;});rb+=dt;
